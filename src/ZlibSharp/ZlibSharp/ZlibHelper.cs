@@ -46,7 +46,8 @@ internal static unsafe class ZlibHelper
             throw new NotPackableException($"{nameof(DeflateEnd)} failed - ({Result}) {Marshal.PtrToStringUTF8((nint) StreamPtr->msg)}");
         }
     }
-    internal static uint Compress(Span<byte> Source, Span<byte> Dest, ZlibCompressionLevel CompressionLevel, out uint Adler32)
+    internal static void Compress<PostProcessorT>(Span<byte> Source, Span<byte> Dest, ZlibCompressionLevel CompressionLevel, ref PostProcessorT Processor)
+        where PostProcessorT: IZPostProcessor
     {
         ZStream Stream;
 
@@ -66,28 +67,34 @@ internal static unsafe class ZlibHelper
             StreamPtr->next_out = DestPtr;
             StreamPtr->avail_out = (uint) Dest.Length;
 
-            ZlibResult Result;
+            // while ((Result = UnsafeNativeMethods.deflate(StreamPtr, ZlibFlushStrategy.NoFlush)) == ZlibResult.Ok)
+            // {
+            //     if (StreamPtr->avail_in == 0)
+            //     {
+            //         UnsafeNativeMethods.deflate(StreamPtr, ZlibFlushStrategy.Finish);
+            //     }
+            // }
 
-            while (UnsafeNativeMethods.deflate(StreamPtr, ZlibFlushStrategy.NoFlush) == ZlibResult.Ok)
-            {
-                if (StreamPtr->avail_in == 0)
-                {
-                    UnsafeNativeMethods.deflate(StreamPtr, ZlibFlushStrategy.Finish);
-                }
-            };
+            //TODO: Find out why UnsafeNativeMethods.deflate(StreamPtr, ZlibFlushStrategy.Finish); sets avail_in to 0, even on dest buffer under-allocation
+            //Expected behavior: avail_in should be number of unprocessed bytes
+            
+            var OriginalIn = StreamPtr->avail_in;
+            
+            var Result = UnsafeNativeMethods.deflate(StreamPtr, ZlibFlushStrategy.Finish);
 
-            Adler32 = GetAdler32(StreamPtr);
+            StreamPtr->avail_in = OriginalIn;
+            
+            Processor.Execute(StreamPtr, Result);
 
             DeflateEnd(StreamPtr);
-
-            return (uint) Stream.total_out.Value;
         }
     }
 
     //Decompress returns avail_in, allowing users to reallocate and continue decompressing remaining data
     //should Dest buffer be under-allocated
 
-    internal static uint Decompress(Span<byte> Source, Span<byte> Dest, out uint BytesWritten, out uint Adler32)
+    internal static void Decompress<PostProcessorT>(Span<byte> Source, Span<byte> Dest, ref PostProcessorT Processor)
+        where PostProcessorT: IZPostProcessor
     {
         ZStream Stream;
 
@@ -107,25 +114,25 @@ internal static unsafe class ZlibHelper
             StreamPtr->next_out = DestPtr;
             StreamPtr->avail_out = (uint) Dest.Length;
 
-            while (UnsafeNativeMethods.inflate(StreamPtr, ZlibFlushStrategy.NoFlush) == ZlibResult.Ok)
-            {
-                if (StreamPtr->avail_in == 0)
-                {
-                    UnsafeNativeMethods.inflate(StreamPtr, ZlibFlushStrategy.Finish);
-                }
-            }
-
-            BytesWritten = (uint) StreamPtr->total_out.Value;
+            // ZlibResult Result;
+            //
+            // while ((Result = UnsafeNativeMethods.inflate(StreamPtr, ZlibFlushStrategy.NoFlush)) == ZlibResult.Ok)
+            // {
+            //     if (StreamPtr->avail_in == 0)
+            //     {
+            //         UnsafeNativeMethods.inflate(StreamPtr, ZlibFlushStrategy.Finish);
+            //     }
+            // }
             
-            Adler32 = GetAdler32(StreamPtr);
+            var Result = UnsafeNativeMethods.inflate(StreamPtr, ZlibFlushStrategy.Finish);
+            
+            Processor.Execute(StreamPtr, Result);
 
             InflateEnd(StreamPtr);
-
-            return StreamPtr->avail_in;
         }
     }
 
-    private static uint GetAdler32(ZStream* StreamPtr)
+    internal static uint GetAdler32(ZStream* StreamPtr)
     {
         return (uint) (StreamPtr->adler.Value & 0xffff);
     }

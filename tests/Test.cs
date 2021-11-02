@@ -1,5 +1,3 @@
-using System.IO.Compression;
-using System.Runtime.InteropServices;
 using FluentAssertions;
 using Xunit;
 using Xunit.Abstractions;
@@ -13,6 +11,16 @@ public class Test
     private readonly byte[] SourceString, SourceStringCompressed, SourceBuffer;
 
     private readonly int LengthOfCompressed;
+
+    private struct GetStreamCopyPostProcessor: IZPostProcessor
+    {
+        public ZStream StreamCopy;
+        
+        public unsafe void Execute(ZStream* StreamPtr, ZlibResult Result)
+        {
+            StreamCopy = *StreamPtr;
+        }
+    }
     
     public Test(ITestOutputHelper fakeConsole)
     {
@@ -21,8 +29,12 @@ public class Test
         SourceString = File.ReadAllBytes("SourceText.txt");
 
         var DestBuffer = new byte[SourceString.Length];
+
+        var Processor = new GetStreamCopyPostProcessor();
         
-        LengthOfCompressed = (int) MemoryZlib.Compress(SourceString, DestBuffer);
+        MemoryZlib.Compress(SourceString, DestBuffer, ref Processor);
+
+        LengthOfCompressed = (int) Processor.StreamCopy.TotalBytesWritten;
 
         SourceStringCompressed = new byte[LengthOfCompressed];
         
@@ -34,7 +46,11 @@ public class Test
     [Fact]
     public void DecompressionWorks()
     {
-        MemoryZlib.Decompress(SourceStringCompressed, SourceBuffer, out _).Should().Be(0);
+        var Processor = new GetStreamCopyPostProcessor();
+
+        MemoryZlib.Decompress(SourceStringCompressed, SourceBuffer, ref Processor);
+            
+        Processor.StreamCopy.TotalBytesUnprocessed.Should().Be(0);
 
         SourceBuffer.Should().Equal(SourceString);
     }
@@ -47,14 +63,18 @@ public class Test
         UndersizedBufferLength.Should().BeLessThan(SourceBuffer.Length);
         
         var UndersizedDestBuffer = new byte[UndersizedBufferLength];
-        
-        MemoryZlib.Decompress(SourceStringCompressed, UndersizedDestBuffer, out var BytesWritten).Should().NotBe(0);
 
-        BytesWritten.Should().Be(UndersizedBufferLength);
+        var Processor = new GetStreamCopyPostProcessor();
+        
+        MemoryZlib.Decompress(SourceStringCompressed, UndersizedDestBuffer, ref Processor);
+            
+        Processor.StreamCopy.TotalBytesUnprocessed.Should().NotBe(0);
+
+        Processor.StreamCopy.TotalBytesWritten.Should().Be(UndersizedBufferLength);
     }
     
     [Fact]
-    public void CompressionToUnderAllocatedBufferReturnsNonZeroValue()
+    public void CompressionToUnderAllocatedBufferTotalBytesUnprocessedIsNonZeroValue()
     {
         const int UndersizedBufferLength = 69;
 
@@ -62,7 +82,13 @@ public class Test
         
         var UndersizedDestBuffer = new byte[UndersizedBufferLength];
         
-        MemoryZlib.Compress(SourceStringCompressed, UndersizedDestBuffer).Should().NotBe(0);
+        var Processor = new GetStreamCopyPostProcessor();
+
+        var Span = UndersizedDestBuffer.AsSpan();
+        
+        MemoryZlib.Compress(SourceString, Span, ref Processor);
+
+        Processor.StreamCopy.TotalBytesUnprocessed.Should().NotBe(0);
     }
     
     [Fact]
@@ -74,8 +100,12 @@ public class Test
         
         var OversizedDestBuffer = new byte[SourceLength + OversizeBy];
         
-        MemoryZlib.Decompress(SourceStringCompressed, OversizedDestBuffer, out var BytesWritten).Should().Be(0);
+        var Processor = new GetStreamCopyPostProcessor();
+        
+        MemoryZlib.Decompress(SourceStringCompressed, OversizedDestBuffer, ref Processor);
+            
+        Processor.StreamCopy.TotalBytesUnprocessed.Should().Be(0);
 
-        BytesWritten.Should().Be(SourceLength);
+        Processor.StreamCopy.TotalBytesWritten.Should().Be(SourceLength);
     }
 }

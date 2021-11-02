@@ -10,56 +10,77 @@ namespace ZlibSharp;
 /// </summary>
 public static unsafe class MemoryZlib
 {
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint Compress(byte[] Source, byte[] Dest, ZlibCompressionLevel CompressionLevel = ZlibCompressionLevel.DefaultCompression)
+    private struct GetAdler32DataPostProcessor: IZPostProcessor
     {
-        return Compress(Source.AsSpan(), Dest.AsSpan(), CompressionLevel);
+        public uint Adler32;
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Execute(ZStream* StreamPtr, ZlibResult Result)
+        {
+            Adler32 = StreamPtr->Adler32;
+        }
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint Compress(string SourcePath, byte[] Dest, ZlibCompressionLevel CompressionLevel = ZlibCompressionLevel.DefaultCompression)
+    public static void Compress(byte[] Source, byte[] Dest, out uint Adler32, ZlibCompressionLevel CompressionLevel = ZlibCompressionLevel.DefaultCompression)
+    {
+        Compress(Source.AsSpan(), Dest.AsSpan(), out Adler32, CompressionLevel);
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Compress(string SourcePath, byte[] Dest, out uint Adler32, ZlibCompressionLevel CompressionLevel = ZlibCompressionLevel.DefaultCompression)
     {
         var Source = File.ReadAllBytes(SourcePath);
         
-        return Compress(Source, Dest, CompressionLevel);
+        Compress(Source.AsSpan(), Dest.AsSpan(), out Adler32, CompressionLevel);
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint Compress(Span<byte> Source, Span<byte> Dest, ZlibCompressionLevel CompressionLevel = ZlibCompressionLevel.DefaultCompression)
+    public static void Compress(Span<byte> Source, Span<byte> Dest, out uint Adler32, ZlibCompressionLevel CompressionLevel = ZlibCompressionLevel.DefaultCompression)
     {
-        return Compress(Source, Dest, CompressionLevel, out _);
+        var Processor = new GetAdler32DataPostProcessor();
+        
+        Compress(Source, Dest, ref Processor, CompressionLevel);
+
+        Adler32 = Processor.Adler32;
     }
-    
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint Compress(Span<byte> Source, Span<byte> Dest, ZlibCompressionLevel CompressionLevel, out uint Adler32)
+    public static void Compress<PostProcessorT>(Span<byte> Source, Span<byte> Dest, ref PostProcessorT Processor, ZlibCompressionLevel CompressionLevel = ZlibCompressionLevel.DefaultCompression)
+        where PostProcessorT: IZPostProcessor
     {
-        return ZlibHelper.Compress(Source, Dest, CompressionLevel, out Adler32);
+        ZlibHelper.Compress(Source, Dest, CompressionLevel, ref Processor);
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint Decompress(byte[] Source, byte[] Dest, out uint BytesWritten)
-    {
-        return Decompress(Source.AsSpan(), Dest.AsSpan(), out BytesWritten);
-    }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint Decompress(string SourcePath, byte[] Dest, out uint BytesWritten)
+    public static void Decompress(string SourcePath, byte[] Dest, out uint Adler32)
     {
         var Source = File.ReadAllBytes(SourcePath);
         
-        return Decompress(Source, Dest, out BytesWritten);
+        Decompress(Source, Dest, out Adler32);
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint Decompress(Span<byte> Source, Span<byte> Dest, out uint BytesWritten)
+    public static void Decompress(byte[] Source, byte[] Dest, out uint Adler32)
     {
-        return Decompress(Source, Dest, out BytesWritten, out _);
+        Decompress(Source.AsSpan(), Dest.AsSpan(), out Adler32);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Decompress(Span<byte> Source, Span<byte> Dest, out uint Adler32)
+    {
+        var Processor = new GetAdler32DataPostProcessor();
+        
+        ZlibHelper.Decompress(Source, Dest, ref Processor);
+
+        Adler32 = Processor.Adler32;
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static uint Decompress(Span<byte> Source, Span<byte> Dest, out uint BytesWritten, out uint Adler32)
+    public static void Decompress<PostProcessorT>(Span<byte> Source, Span<byte> Dest, ref PostProcessorT Processor)
+        where PostProcessorT : IZPostProcessor
     {
-        return ZlibHelper.Decompress(Source, Dest, out BytesWritten, out Adler32);
+        ZlibHelper.Decompress(Source, Dest, ref Processor);
     }
 
     /// <summary>

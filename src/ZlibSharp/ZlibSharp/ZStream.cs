@@ -5,25 +5,44 @@
 
 namespace ZlibSharp;
 
-internal unsafe struct ZStream
+public unsafe struct ZStream
 {
-    internal byte* next_in;
-    internal uint avail_in;
-    internal CULong total_in;
+    public byte* next_in;
+    public uint avail_in;
+    public CULong total_in;
 
-    internal byte* next_out;
-    internal uint avail_out;
-    internal CULong total_out;
-    internal byte* msg;
+    public byte* next_out;
+    public uint avail_out;
+    public CULong total_out;
+    public byte* msg;
 
-    private readonly internal_state* state; // not visible by applications.
+    internal readonly internal_state* state; // not visible by applications.
 
-    internal delegate* unmanaged[Cdecl] <void*, uint, uint, void*> zalloc;
-    internal delegate* unmanaged[Cdecl] <void*, void*> zfree;
-    internal void* opaque;
+    public delegate* unmanaged[Cdecl] <void*, uint, uint, void*> zalloc;
+    public delegate* unmanaged[Cdecl] <void*, void*> zfree;
+    public void* opaque;
 
-    internal int data_type;
+    public int data_type;
 
-    internal CULong adler;
-    internal CULong reserved; // reserved for future use in zlib.
+    public CULong adler;
+    public CULong reserved; // reserved for future use in zlib.
+
+    //Helpers
+    public uint TotalBytesWritten
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => (uint) total_out.Value;
+    }
+    
+    public uint TotalBytesUnprocessed
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => avail_in;
+    }
+    
+    public uint Adler32
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => (uint) (adler.Value & 0xffff);
+    }
 }

@@ -5,7 +5,7 @@
 
 namespace ZlibSharp;
 
-internal enum ZlibResult
+public enum ZlibResult
 {
     VersionError = -6,
     BufError,
